@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.exceptions import HTTPException
 from dotenv import load_dotenv
@@ -10,6 +11,13 @@ BASE_URL = os.getenv("BASE_URL")
 API_KEY = os.getenv("API_KEY")
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/{tail:path}")
