@@ -5,10 +5,16 @@ from fastapi.exceptions import HTTPException
 from dotenv import load_dotenv
 import os
 import httpx
+import time
+import hashlib
+import json
 
 load_dotenv()
 BASE_URL = os.getenv("BASE_URL")
 API_KEY = os.getenv("API_KEY")
+
+CACHE_TTL = 60
+cache = {}
 
 app = FastAPI()
 app.add_middleware(
@@ -20,6 +26,15 @@ app.add_middleware(
 )
 
 
+def make_cache_key(path: str, params: dict) -> str:
+    key_data = {
+        "path": path,
+        "params": params
+    }
+    key_str = json.dumps(key_data, sort_keys=True)
+    return hashlib.sha256(key_str.encode()).hexdigest()
+
+
 @app.get("/{tail:path}")
 async def proxy_connpass(request: Request, tail: str):
     params = dict(request.query_params)
@@ -28,6 +43,13 @@ async def proxy_connpass(request: Request, tail: str):
     }
     url = f"{BASE_URL}/{tail}"
 
+    cache_key = make_cache_key(url, params)
+    now = time.time()
+    if cache_key in cache:
+        cached = cache[cache_key]
+        if now - cached["time"] < CACHE_TTL:
+            return JSONResponse(status_code=200, content=cached["data"])
+
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url, params=params, headers=headers)
@@ -35,6 +57,11 @@ async def proxy_connpass(request: Request, tail: str):
         raise HTTPException(status_code=502, detail=str(e))
 
     if response.status_code == 200:
-        return JSONResponse(status_code=200, content=response.json())
+        data = response.json()
+        cache[cache_key] = {
+            "time": now,
+            "data": data
+        }
+        return JSONResponse(status_code=200, content=data)
 
     return Response(status_code=response.status_code, content=response.content)
