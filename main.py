@@ -12,6 +12,7 @@ import json
 load_dotenv()
 BASE_URL = os.getenv("BASE_URL")
 API_KEY = os.getenv("API_KEY")
+ALLOWED_API_KEYS = set(os.getenv("ALLOWED_API_KEYS", "").split(","))
 
 CACHE_TTL = 60
 cache = {}
@@ -37,6 +38,10 @@ def make_cache_key(path: str, params: dict) -> str:
 
 @app.get("/{tail:path}")
 async def proxy_connpass(request: Request, tail: str):
+    user_api_key = request.headers.get("X-API-Key")
+    if not user_api_key or user_api_key not in ALLOWED_API_KEYS:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     params = dict(request.query_params)
     headers = {
         "X-API-Key": API_KEY
