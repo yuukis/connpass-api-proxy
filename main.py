@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.exceptions import HTTPException
 from dotenv import load_dotenv
+import asyncio
 import os
 import httpx
 import time
@@ -16,6 +17,9 @@ ALLOWED_API_KEYS = set(os.getenv("ALLOWED_API_KEYS", "").split(","))
 
 CACHE_TTL = 60
 cache = {}
+
+last_connpass_call = 0
+connpass_lock = asyncio.Lock()
 
 app = FastAPI()
 app.add_middleware(
@@ -55,11 +59,19 @@ async def proxy_connpass(request: Request, tail: str):
         if now - cached["time"] < CACHE_TTL:
             return JSONResponse(status_code=200, content=cached["data"])
 
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(url, params=params, headers=headers)
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    async with connpass_lock:
+        global last_connpass_call
+        wait_time = max(0, last_connpass_call + 1 - now)
+        if wait_time > 0:
+            print(f"Waiting for {wait_time} seconds to avoid rate limit")
+            await asyncio.sleep(wait_time)
+        last_connpass_call = time.time()
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, params=params, headers=headers)
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=str(e))
 
     if response.status_code == 200:
         data = response.json()
